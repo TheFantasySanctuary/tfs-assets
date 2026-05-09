@@ -124,7 +124,12 @@ document.addEventListener("click", function(e) {
 function doRefresh() {
   document.getElementById("stxt").textContent = "Refreshing...";
   var url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQSHDN2QSRWf9QQpAB395HyNHstIXC9LYh_7d23i6zeS-uLqkDgjYSR1SVwdUgtqKIwHzuN26N1uH3s/pub?gid=1395165281&single=true&output=csv";
-  var proxies = [url + "&t=" + Date.now(), "https://api.allorigins.win/raw?url=" + encodeURIComponent(url)];
+  var proxies = [
+    "https://thefantasysanctuary.com/wp-content/uploads/sheet-proxy.php?t=" + Date.now(),
+    url + "&t=" + Date.now(),
+    "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
+    "https://corsproxy.io/?" + encodeURIComponent(url)
+  ];
   var i = 0;
   function tryNext() {
     if (i >= proxies.length) { document.getElementById("stxt").textContent = "Built-in values loaded"; return; }
