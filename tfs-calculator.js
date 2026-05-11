@@ -165,3 +165,5 @@ function parseCSV(text) {
   }
   return out;
 }
+// Auto-refresh on load
+doRefresh();
