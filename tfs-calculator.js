@@ -1,34 +1,63 @@
 // ============================================================
 // The Fantasy Sanctuary — Dynasty Trade Calculator
 // Values loaded live from Google Sheets CSV
+// Includes league setting value adjustments
 // ============================================================
 
 const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQSHDN2QSRWf9QQpAB395HyNHstIXC9LYh_7d23i6zeS-uLqkDgjYSR1SVwdUgtqKIwHzuN26N1uH3s/pub?output=csv";
 
-// Sheet column layout (0-indexed):
-// 0  = QB Name
-// 1  = QB SF Value
-// 2  = QB 1QB Value
-// 3  = (blank)
-// 4  = RB Name
-// 5  = RB Value (SF & 1QB same)
-// 6  = (blank)
-// 7  = WR Name
-// 8  = WR Value
-// 9  = (blank)
-// 10 = TE Name
-// 11 = TE TEP Value
-// 12 = TE PPR Value
-// 13 = (blank)
-// 14 = Pick Name
-// 15 = Pick SF Value
-// 16 = Pick 1QB Value
+// ── State ─────────────────────────────────────────────────────
 
 let ALL_PLAYERS = [];
-let fmt = 'sf';   // 'sf' | 'qb'
-let tep = 'tep';  // 'tep' | 'ppr'
+let fmt = 'sf';       // 'sf' | 'qb'
+let tepMode = 'tep';  // 'tep' | 'ppr'
 
-// ── Helpers ──────────────────────────────────────────────────
+const settings = {
+  teamSize: null,           // null | '8' | '10' | '14' | '16'
+  tepLevel: null,           // null | '1pt' | '1.5pt' | '2pt' | '2te'
+  sixPtPass: false,
+  pointPerCarry: false,
+  pointPerFirstDown: false,
+  tieredPPR: false,
+};
+
+const teams = { A: [], B: [] };
+let selected = null;
+
+// ── Adjustment Multipliers ────────────────────────────────────
+// Source: Value Adjustments table (image provided)
+
+function getMultipliers() {
+  const m = { QB: 1, RB: 1, WR: 1, TE: 1, PICK: 1 };
+
+  // Team size
+  if (settings.teamSize === '8')  { m.QB *= 0.75; m.TE *= 0.90; m.PICK *= 1.25; }
+  if (settings.teamSize === '10') { m.QB *= 0.90; m.PICK *= 1.10; }
+  if (settings.teamSize === '14') { m.QB *= 1.10; m.PICK *= 0.95; }
+  if (settings.teamSize === '16') { m.QB *= 1.25; m.RB *= 1.05; m.TE *= 1.10; m.PICK *= 0.90; }
+
+  // TE Premium level
+  if (settings.tepLevel === '1pt')   { m.TE *= 1.10; }
+  if (settings.tepLevel === '1.5pt') { m.TE *= 1.25; }
+  if (settings.tepLevel === '2pt')   { m.TE *= 1.40; m.PICK *= 1.05; }
+  if (settings.tepLevel === '2te')   { m.TE *= 1.50; }
+
+  // 6pt Passing TD
+  if (settings.sixPtPass) { m.QB *= 1.05; }
+
+  // Point Per Carry (QB boost approximate for rushing QBs)
+  if (settings.pointPerCarry) { m.QB *= 1.20; m.RB *= 1.50; m.PICK *= 1.05; }
+
+  // Point per First Down
+  if (settings.pointPerFirstDown) { m.RB *= 1.10; m.WR *= 1.20; m.TE *= 1.15; m.PICK *= 1.05; }
+
+  // Tiered PPR
+  if (settings.tieredPPR) { m.RB *= 0.95; m.WR *= 1.20; m.TE *= 1.10; }
+
+  return m;
+}
+
+// ── Helpers ───────────────────────────────────────────────────
 
 function parseNum(s) {
   if (!s) return 0;
@@ -40,103 +69,176 @@ function posColor(pos) {
   return { QB: 'pQB', RB: 'pRB', WR: 'pWR', TE: 'pTE', PICK: 'pPICK' }[pos] || 'pWR';
 }
 
-function getValue(p) {
-  if (p.pos === 'QB') return fmt === 'sf' ? p.sf : p.qb1;
-  if (p.pos === 'TE') return tep === 'tep' ? p.tep : p.ppr;
+function getBaseValue(p) {
+  if (p.pos === 'QB')   return fmt === 'sf' ? p.sf : p.qb1;
+  if (p.pos === 'TE')   return tepMode === 'tep' ? p.tep : p.ppr;
   if (p.pos === 'PICK') return fmt === 'sf' ? p.sf : p.qb1;
-  return p.sf; // RB, WR same for both formats
+  return p.sf; // RB and WR are the same across formats
+}
+
+function getValue(p) {
+  const base = getBaseValue(p);
+  const m = getMultipliers();
+  return Math.round(base * (m[p.pos] || 1));
 }
 
 // ── CSV Fetching & Parsing ────────────────────────────────────
 
 async function loadCSV() {
-  const res = await fetch(CSV_URL + "&t=" + Date.now()); // bust cache
-  const text = await res.text();
-  return text;
+  const res = await fetch(CSV_URL + "&t=" + Date.now());
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.text();
 }
 
 function parseCSV(text) {
   const lines = text.split('\n');
   const players = [];
 
-  // Skip header row (row 0)
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
 
-    // QBs — cols 0,1,2
-    if (cols[0]) {
-      const sf = parseNum(cols[1]);
-      const qb1 = parseNum(cols[2]);
-      if (cols[0].length > 1) {
-        players.push({ name: cols[0], pos: 'QB', sf, qb1, tep: sf, ppr: sf });
-      }
+    if (cols[0] && cols[0].length > 1)
+      players.push({ name: cols[0], pos: 'QB',
+        sf: parseNum(cols[1]), qb1: parseNum(cols[2]),
+        tep: parseNum(cols[1]), ppr: parseNum(cols[1]) });
+
+    if (cols[4] && cols[4].length > 1) {
+      const v = parseNum(cols[5]);
+      players.push({ name: cols[4], pos: 'RB', sf: v, qb1: v, tep: v, ppr: v });
     }
 
-    // RBs — cols 4,5
-    if (cols[4]) {
-      const val = parseNum(cols[5]);
-      if (cols[4].length > 1) {
-        players.push({ name: cols[4], pos: 'RB', sf: val, qb1: val, tep: val, ppr: val });
-      }
+    if (cols[7] && cols[7].length > 1) {
+      const v = parseNum(cols[8]);
+      players.push({ name: cols[7], pos: 'WR', sf: v, qb1: v, tep: v, ppr: v });
     }
 
-    // WRs — cols 7,8
-    if (cols[7]) {
-      const val = parseNum(cols[8]);
-      if (cols[7].length > 1) {
-        players.push({ name: cols[7], pos: 'WR', sf: val, qb1: val, tep: val, ppr: val });
-      }
-    }
+    if (cols[10] && cols[10].length > 1)
+      players.push({ name: cols[10], pos: 'TE',
+        sf: parseNum(cols[11]), qb1: parseNum(cols[11]),
+        tep: parseNum(cols[11]), ppr: parseNum(cols[12]) });
 
-    // TEs — cols 10,11,12
-    if (cols[10]) {
-      const tepVal = parseNum(cols[11]);
-      const pprVal = parseNum(cols[12]);
-      if (cols[10].length > 1) {
-        players.push({ name: cols[10], pos: 'TE', sf: tepVal, qb1: tepVal, tep: tepVal, ppr: pprVal });
-      }
-    }
-
-    // Picks — cols 14,15,16
-    if (cols[14]) {
-      const sf = parseNum(cols[15]);
-      const qb1 = parseNum(cols[16]);
-      if (cols[14].length > 1) {
-        players.push({ name: cols[14], pos: 'PICK', sf, qb1, tep: sf, ppr: qb1 });
-      }
-    }
+    if (cols[14] && cols[14].length > 1)
+      players.push({ name: cols[14], pos: 'PICK',
+        sf: parseNum(cols[15]), qb1: parseNum(cols[16]),
+        tep: parseNum(cols[15]), ppr: parseNum(cols[16]) });
   }
 
-  // Deduplicate by name (keep first occurrence)
   const seen = new Set();
   return players.filter(p => {
-    if (seen.has(p.name.toLowerCase())) return false;
-    seen.add(p.name.toLowerCase());
-    return true;
+    const k = p.name.toLowerCase();
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
   });
 }
 
-// ── State ─────────────────────────────────────────────────────
+// ── League Settings UI ────────────────────────────────────────
 
-const teams = { A: [], B: [] };
-let selected = null; // last highlighted search result
+function buildSettingsUI() {
+  const container = document.getElementById('leagueSettings');
+  if (!container) return;
 
-// ── UI Rendering ──────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="ls-title">⚙️ League Settings <span class="ls-sub">Adjust values for your league</span></div>
+
+    <div class="ls-section">
+      <div class="ls-label">Team Size</div>
+      <div class="tgroup">
+        <button class="tbtn" id="ts8"  onclick="toggleTeamSize('8')">8 Team</button>
+        <button class="tbtn" id="ts10" onclick="toggleTeamSize('10')">10 Team</button>
+        <button class="tbtn" id="ts14" onclick="toggleTeamSize('14')">14 Team</button>
+        <button class="tbtn" id="ts16" onclick="toggleTeamSize('16')">16 Team</button>
+      </div>
+    </div>
+
+    <div class="ls-section">
+      <div class="ls-label">TE Premium Level <span class="ls-note">(stacks with TE toggle above)</span></div>
+      <div class="tgroup">
+        <button class="tbtn" id="tepL1pt"   onclick="toggleTEPLevel('1pt')">1pt TEp</button>
+        <button class="tbtn" id="tepL1.5pt" onclick="toggleTEPLevel('1.5pt')">1.5pt TEp</button>
+        <button class="tbtn" id="tepL2pt"   onclick="toggleTEPLevel('2pt')">2pt TEp</button>
+        <button class="tbtn" id="tepL2te"   onclick="toggleTEPLevel('2te')">Start 2 TEs</button>
+      </div>
+    </div>
+
+    <div class="ls-section">
+      <div class="ls-label">Scoring Bonuses</div>
+      <div class="tgroup ls-wrap">
+        <button class="tbtn" id="s6pt"  onclick="toggleBonus('sixPtPass')">6pt Pass TD</button>
+        <button class="tbtn" id="sPPC"  onclick="toggleBonus('pointPerCarry')">Point Per Carry</button>
+        <button class="tbtn" id="sPPFD" onclick="toggleBonus('pointPerFirstDown')">Pt Per 1st Down</button>
+        <button class="tbtn" id="sTPPR" onclick="toggleBonus('tieredPPR')">Tiered PPR</button>
+      </div>
+    </div>
+
+    <div id="adjSummary" style="display:none;" class="adj-summary"></div>
+  `;
+}
+
+function toggleTeamSize(size) {
+  settings.teamSize = settings.teamSize === size ? null : size;
+  ['8','10','14','16'].forEach(s =>
+    document.getElementById('ts' + s)?.classList.toggle('on', settings.teamSize === s));
+  refreshValues();
+}
+
+function toggleTEPLevel(level) {
+  settings.tepLevel = settings.tepLevel === level ? null : level;
+  ['1pt','1.5pt','2pt','2te'].forEach(v =>
+    document.getElementById('tepL' + v)?.classList.toggle('on', settings.tepLevel === v));
+  refreshValues();
+}
+
+function toggleBonus(key) {
+  settings[key] = !settings[key];
+  const ids = { sixPtPass:'s6pt', pointPerCarry:'sPPC', pointPerFirstDown:'sPPFD', tieredPPR:'sTPPR' };
+  document.getElementById(ids[key])?.classList.toggle('on', settings[key]);
+  refreshValues();
+}
+
+function refreshValues() {
+  renderList('A');
+  renderList('B');
+  updateAdjSummary();
+}
+
+function updateAdjSummary() {
+  const el = document.getElementById('adjSummary');
+  if (!el) return;
+  const active = [];
+  if (settings.teamSize) active.push(settings.teamSize + '-team');
+  if (settings.tepLevel) active.push(settings.tepLevel + ' TEp');
+  if (settings.sixPtPass) active.push('6pt Pass TD');
+  if (settings.pointPerCarry) active.push('Pt Per Carry');
+  if (settings.pointPerFirstDown) active.push('Pt Per 1st Down');
+  if (settings.tieredPPR) active.push('Tiered PPR');
+
+  if (!active.length) { el.style.display = 'none'; return; }
+  const m = getMultipliers();
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="adj-active">Active: ${active.join(' · ')}</div>
+    <div class="adj-mults">
+      <span class="mult-pill pQB">QB ×${m.QB.toFixed(2)}</span>
+      <span class="mult-pill pRB">RB ×${m.RB.toFixed(2)}</span>
+      <span class="mult-pill pWR">WR ×${m.WR.toFixed(2)}</span>
+      <span class="mult-pill pTE">TE ×${m.TE.toFixed(2)}</span>
+      <span class="mult-pill pPICK">Pick ×${m.PICK.toFixed(2)}</span>
+    </div>`;
+}
+
+// ── Rendering ─────────────────────────────────────────────────
 
 function renderList(side) {
-  const el = document.getElementById('lst' + side);
+  const el  = document.getElementById('lst' + side);
   const tot = document.getElementById('tot' + side);
   const arr = teams[side];
   if (!arr.length) {
     el.innerHTML = '<div class="empty">Search above to add players</div>';
-    tot.textContent = '0';
-    updateBanner();
-    return;
+    tot.textContent = '0'; updateBanner(); return;
   }
   let sum = 0;
   el.innerHTML = arr.map((p, i) => {
-    const v = getValue(p);
-    sum += v;
+    const v = getValue(p); sum += v;
     return `<div class="chip">
       <span class="cpos ${posColor(p.pos)}">${p.pos}</span>
       <span class="cname">${p.name}</span>
@@ -144,46 +246,25 @@ function renderList(side) {
       <button class="crem" onclick="remove('${side}',${i})">✕</button>
     </div>`;
   }).join('');
-  tot.textContent = sum;
-  updateBanner();
+  tot.textContent = sum; updateBanner();
 }
 
 function updateBanner() {
   const a = teams.A.reduce((s, p) => s + getValue(p), 0);
   const b = teams.B.reduce((s, p) => s + getValue(p), 0);
   const banner = document.getElementById('rbanner');
-  const rtext = document.getElementById('rtext');
-  const rscores = document.getElementById('rscores');
-  const barA = document.getElementById('barA');
-  const barB = document.getElementById('barB');
-
   if (!teams.A.length && !teams.B.length) {
-    banner.classList.remove('show', 'wa', 'wb');
-    return;
+    banner.classList.remove('show','wa','wb'); return;
   }
-
   banner.classList.add('show');
   const total = a + b || 1;
-  const pctA = Math.round((a / total) * 100);
-  const pctB = 100 - pctA;
-  barA.style.width = pctA + '%';
-  barB.style.width = pctB + '%';
-  rscores.textContent = `Team A: ${a} pts  |  Team B: ${b} pts`;
-
-  if (a === b) {
-    rtext.textContent = '⚖️ Even Trade';
-    banner.classList.remove('wa', 'wb');
-  } else if (a > b) {
-    const edge = a - b;
-    rtext.textContent = `Team A wins by ${edge} pts`;
-    banner.classList.add('wa');
-    banner.classList.remove('wb');
-  } else {
-    const edge = b - a;
-    rtext.textContent = `Team B wins by ${edge} pts`;
-    banner.classList.add('wb');
-    banner.classList.remove('wa');
-  }
+  document.getElementById('barA').style.width = Math.round((a / total) * 100) + '%';
+  document.getElementById('barB').style.width = Math.round((b / total) * 100) + '%';
+  document.getElementById('rscores').textContent = `Team A: ${a} pts  |  Team B: ${b} pts`;
+  const rtext = document.getElementById('rtext');
+  if (a === b) { rtext.textContent = '⚖️ Even Trade'; banner.classList.remove('wa','wb'); }
+  else if (a > b) { rtext.textContent = `Team A wins by ${a-b} pts`; banner.classList.add('wa'); banner.classList.remove('wb'); }
+  else { rtext.textContent = `Team B wins by ${b-a} pts`; banner.classList.add('wb'); banner.classList.remove('wa'); }
 }
 
 // ── Search ────────────────────────────────────────────────────
@@ -192,30 +273,23 @@ function doSearch() {
   const q = document.getElementById('srch').value.trim().toLowerCase();
   const rlist = document.getElementById('rlist');
   if (!q) { rlist.style.display = 'none'; return; }
-
   const results = ALL_PLAYERS
     .filter(p => p.name.toLowerCase().includes(q))
     .sort((a, b) => getValue(b) - getValue(a))
     .slice(0, 20);
-
-  if (!results.length) {
-    rlist.innerHTML = '<div class="nores">No players found</div>';
-  } else {
-    rlist.innerHTML = results.map((p, i) => {
-      const v = getValue(p);
-      return `<div class="ritem" onclick="selectPlayer(${ALL_PLAYERS.indexOf(p)})">
+  rlist.innerHTML = results.length
+    ? results.map(p => `<div class="ritem" onclick="selectPlayer(${JSON.stringify(p.name)})">
         <span class="ripos ${posColor(p.pos)}">${p.pos}</span>
         <span class="riname">${p.name}</span>
-        <span class="rival">${v}</span>
-      </div>`;
-    }).join('');
-  }
+        <span class="rival">${getValue(p)}</span>
+      </div>`).join('')
+    : '<div class="nores">No players found</div>';
   rlist.style.display = 'block';
 }
 
-function selectPlayer(idx) {
-  selected = ALL_PLAYERS[idx];
-  document.getElementById('srch').value = selected.name;
+function selectPlayer(name) {
+  selected = ALL_PLAYERS.find(p => p.name === name);
+  document.getElementById('srch').value = name;
   document.getElementById('rlist').style.display = 'none';
 }
 
@@ -223,33 +297,24 @@ function selectPlayer(idx) {
 
 function addTo(side) {
   if (!selected) {
-    // try to match current search text
     const q = document.getElementById('srch').value.trim().toLowerCase();
-    if (q) {
-      const match = ALL_PLAYERS.find(p => p.name.toLowerCase().includes(q));
-      if (match) selected = match;
-    }
+    if (q) selected = ALL_PLAYERS.find(p => p.name.toLowerCase().includes(q));
   }
   if (!selected) return;
-  // prevent duplicates within the same side
   if (!teams[side].find(p => p.name === selected.name)) {
-    teams[side].push(selected);
-    renderList(side);
+    teams[side].push(selected); renderList(side);
   }
   selected = null;
   document.getElementById('srch').value = '';
   document.getElementById('rlist').style.display = 'none';
 }
 
-function remove(side, idx) {
-  teams[side].splice(idx, 1);
-  renderList(side);
-}
+function remove(side, idx) { teams[side].splice(idx, 1); renderList(side); }
 
 function clearAll() {
   teams.A = []; teams.B = [];
   renderList('A'); renderList('B');
-  document.getElementById('rbanner').classList.remove('show', 'wa', 'wb');
+  document.getElementById('rbanner').classList.remove('show','wa','wb');
 }
 
 function setFmt(f) {
@@ -260,7 +325,7 @@ function setFmt(f) {
 }
 
 function setTE(t) {
-  tep = t;
+  tepMode = t;
   document.getElementById('teTEP').classList.toggle('on', t === 'tep');
   document.getElementById('tePPR').classList.toggle('on', t === 'ppr');
   renderList('A'); renderList('B');
@@ -269,11 +334,9 @@ function setTE(t) {
 async function doRefresh() {
   const dot = document.getElementById('sdot');
   const stxt = document.getElementById('stxt');
-  dot.className = 'sdot';
-  stxt.textContent = 'Refreshing values…';
+  dot.className = 'sdot'; stxt.textContent = 'Refreshing values…';
   try {
-    const csv = await loadCSV();
-    ALL_PLAYERS = parseCSV(csv);
+    ALL_PLAYERS = parseCSV(await loadCSV());
     dot.className = 'sdot live';
     stxt.textContent = `${ALL_PLAYERS.length} players loaded · ${new Date().toLocaleTimeString()}`;
     renderList('A'); renderList('B');
@@ -287,10 +350,11 @@ async function doRefresh() {
 // ── Init ──────────────────────────────────────────────────────
 
 (async function init() {
+  buildSettingsUI();
   await doRefresh();
   document.getElementById('srch').addEventListener('input', doSearch);
   document.getElementById('srch').addEventListener('focus', doSearch);
-  document.addEventListener('click', function(e) {
+  document.addEventListener('click', e => {
     if (!e.target.closest('.ssec')) document.getElementById('rlist').style.display = 'none';
   });
 })();
