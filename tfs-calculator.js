@@ -13,8 +13,9 @@ let fmt = 'sf';       // 'sf' | 'qb'
 let tepMode = 'tep';  // 'tep' | 'ppr'
 
 const settings = {
-  teamSize: null,           // null | '8' | '10' | '14' | '16'
-  tepLevel: null,           // null | '1pt' | '1.5pt' | '2pt' | '2te'
+  teamSize: null,           // null | '8' | '10' | '12' | '14' | '16'
+  tepLevel: null,           // null | '0.5pt' | '1pt' | '1.5pt' | '2pt'
+  start2TEs: false,
   sixPtPass: false,
   pointPerCarry: false,
   pointPerFirstDown: false,
@@ -33,14 +34,18 @@ function getMultipliers() {
   // Team size
   if (settings.teamSize === '8')  { m.QB *= 0.75; m.TE *= 0.90; m.PICK *= 1.25; }
   if (settings.teamSize === '10') { m.QB *= 0.90; m.PICK *= 1.10; }
+  if (settings.teamSize === '12') { /* 12 team = base values, no adjustment */ }
   if (settings.teamSize === '14') { m.QB *= 1.10; m.PICK *= 0.95; }
   if (settings.teamSize === '16') { m.QB *= 1.25; m.RB *= 1.05; m.TE *= 1.10; m.PICK *= 0.90; }
 
   // TE Premium level
+  if (settings.tepLevel === '0.5pt') { /* 0.5pt TEp = base TEp values, no adjustment */ }
   if (settings.tepLevel === '1pt')   { m.TE *= 1.10; }
   if (settings.tepLevel === '1.5pt') { m.TE *= 1.25; }
   if (settings.tepLevel === '2pt')   { m.TE *= 1.40; m.PICK *= 1.05; }
-  if (settings.tepLevel === '2te')   { m.TE *= 1.50; }
+
+  // Start 2 TEs (bonus)
+  if (settings.start2TEs) { m.TE *= 1.50; }
 
   // 6pt Passing TD
   if (settings.sixPtPass) { m.QB *= 1.05; }
@@ -145,6 +150,7 @@ function buildSettingsUI() {
       <div class="tgroup">
         <button class="tbtn" id="ts8"  onclick="toggleTeamSize('8')">8 Team</button>
         <button class="tbtn" id="ts10" onclick="toggleTeamSize('10')">10 Team</button>
+        <button class="tbtn" id="ts12" onclick="toggleTeamSize('12')">12 Team</button>
         <button class="tbtn" id="ts14" onclick="toggleTeamSize('14')">14 Team</button>
         <button class="tbtn" id="ts16" onclick="toggleTeamSize('16')">16 Team</button>
       </div>
@@ -153,20 +159,21 @@ function buildSettingsUI() {
     <div class="ls-section">
       <div class="ls-label">TE Premium Level <span class="ls-note">(stacks with TE toggle above)</span></div>
       <div class="tgroup">
+        <button class="tbtn" id="tepL0.5pt" onclick="toggleTEPLevel('0.5pt')">0.5pt TEp</button>
         <button class="tbtn" id="tepL1pt"   onclick="toggleTEPLevel('1pt')">1pt TEp</button>
         <button class="tbtn" id="tepL1.5pt" onclick="toggleTEPLevel('1.5pt')">1.5pt TEp</button>
         <button class="tbtn" id="tepL2pt"   onclick="toggleTEPLevel('2pt')">2pt TEp</button>
-        <button class="tbtn" id="tepL2te"   onclick="toggleTEPLevel('2te')">Start 2 TEs</button>
       </div>
     </div>
 
     <div class="ls-section">
-      <div class="ls-label">Scoring Bonuses</div>
+      <div class="ls-label">Bonuses</div>
       <div class="tgroup ls-wrap">
         <button class="tbtn" id="s6pt"  onclick="toggleBonus('sixPtPass')">6pt Pass TD</button>
         <button class="tbtn" id="sPPC"  onclick="toggleBonus('pointPerCarry')">Point Per Carry</button>
         <button class="tbtn" id="sPPFD" onclick="toggleBonus('pointPerFirstDown')">Pt Per 1st Down</button>
         <button class="tbtn" id="sTPPR" onclick="toggleBonus('tieredPPR')">Tiered PPR</button>
+        <button class="tbtn" id="s2TE"  onclick="toggleBonus('start2TEs')">Start 2 TEs</button>
       </div>
     </div>
 
@@ -176,21 +183,21 @@ function buildSettingsUI() {
 
 function toggleTeamSize(size) {
   settings.teamSize = settings.teamSize === size ? null : size;
-  ['8','10','14','16'].forEach(s =>
+  ['8','10','12','14','16'].forEach(s =>
     document.getElementById('ts' + s)?.classList.toggle('on', settings.teamSize === s));
   refreshValues();
 }
 
 function toggleTEPLevel(level) {
   settings.tepLevel = settings.tepLevel === level ? null : level;
-  ['1pt','1.5pt','2pt','2te'].forEach(v =>
+  ['0.5pt','1pt','1.5pt','2pt'].forEach(v =>
     document.getElementById('tepL' + v)?.classList.toggle('on', settings.tepLevel === v));
   refreshValues();
 }
 
 function toggleBonus(key) {
   settings[key] = !settings[key];
-  const ids = { sixPtPass:'s6pt', pointPerCarry:'sPPC', pointPerFirstDown:'sPPFD', tieredPPR:'sTPPR' };
+  const ids = { sixPtPass:'s6pt', pointPerCarry:'sPPC', pointPerFirstDown:'sPPFD', tieredPPR:'sTPPR', start2TEs:'s2TE' };
   document.getElementById(ids[key])?.classList.toggle('on', settings[key]);
   refreshValues();
 }
@@ -211,6 +218,7 @@ function updateAdjSummary() {
   if (settings.pointPerCarry) active.push('Pt Per Carry');
   if (settings.pointPerFirstDown) active.push('Pt Per 1st Down');
   if (settings.tieredPPR) active.push('Tiered PPR');
+  if (settings.start2TEs) active.push('Start 2 TEs');
 
   if (!active.length) { el.style.display = 'none'; return; }
   const m = getMultipliers();
