@@ -13,8 +13,8 @@ let fmt = 'sf';       // 'sf' | 'qb'
 let tepMode = 'tep';  // 'tep' | 'ppr'
 
 const settings = {
-  teamSize: null,           // null | '8' | '10' | '12' | '14' | '16'
-  tepLevel: null,           // null | '0.5pt' | '1pt' | '1.5pt' | '2pt'
+  teamSize: null,
+  tepLevel: null,
   start2TEs: false,
   sixPtPass: false,
   pointPerCarry: false,
@@ -26,38 +26,26 @@ const teams = { A: [], B: [] };
 let selected = null;
 
 // ── Adjustment Multipliers ────────────────────────────────────
-// Source: Value Adjustments table (image provided)
 
 function getMultipliers() {
   const m = { QB: 1, RB: 1, WR: 1, TE: 1, PICK: 1 };
 
-  // Team size
   if (settings.teamSize === '8')  { m.QB *= 0.75; m.TE *= 0.90; m.PICK *= 1.25; }
   if (settings.teamSize === '10') { m.QB *= 0.90; m.PICK *= 1.10; }
-  if (settings.teamSize === '12') { /* 12 team = base values, no adjustment */ }
+  if (settings.teamSize === '12') { /* base */ }
   if (settings.teamSize === '14') { m.QB *= 1.10; m.PICK *= 0.95; }
   if (settings.teamSize === '16') { m.QB *= 1.25; m.RB *= 1.05; m.TE *= 1.10; m.PICK *= 0.90; }
 
-  // TE Premium level
-  if (settings.tepLevel === '0.5pt') { /* 0.5pt TEp = base TEp values, no adjustment */ }
+  if (settings.tepLevel === '0.5pt') { /* base */ }
   if (settings.tepLevel === '1pt')   { m.TE *= 1.10; }
   if (settings.tepLevel === '1.5pt') { m.TE *= 1.25; }
   if (settings.tepLevel === '2pt')   { m.TE *= 1.40; m.PICK *= 1.05; }
 
-  // Start 2 TEs (bonus)
-  if (settings.start2TEs) { m.TE *= 1.50; }
-
-  // 6pt Passing TD
-  if (settings.sixPtPass) { m.QB *= 1.05; }
-
-  // Point Per Carry (QB boost approximate for rushing QBs)
-  if (settings.pointPerCarry) { m.QB *= 1.20; m.RB *= 1.50; m.PICK *= 1.05; }
-
-  // Point per First Down
-  if (settings.pointPerFirstDown) { m.RB *= 1.10; m.WR *= 1.20; m.TE *= 1.15; m.PICK *= 1.05; }
-
-  // Tiered PPR
-  if (settings.tieredPPR) { m.RB *= 0.95; m.WR *= 1.20; m.TE *= 1.10; }
+  if (settings.start2TEs)        { m.TE *= 1.50; }
+  if (settings.sixPtPass)        { m.QB *= 1.05; }
+  if (settings.pointPerCarry)    { m.QB *= 1.20; m.RB *= 1.50; m.PICK *= 1.05; }
+  if (settings.pointPerFirstDown){ m.RB *= 1.10; m.WR *= 1.20; m.TE *= 1.15; m.PICK *= 1.05; }
+  if (settings.tieredPPR)        { m.RB *= 0.95; m.WR *= 1.20; m.TE *= 1.10; }
 
   return m;
 }
@@ -78,7 +66,7 @@ function getBaseValue(p) {
   if (p.pos === 'QB')   return fmt === 'sf' ? p.sf : p.qb1;
   if (p.pos === 'TE')   return tepMode === 'tep' ? p.tep : p.ppr;
   if (p.pos === 'PICK') return fmt === 'sf' ? p.sf : p.qb1;
-  return p.sf; // RB and WR are the same across formats
+  return p.sf;
 }
 
 function getValue(p) {
@@ -212,13 +200,13 @@ function updateAdjSummary() {
   const el = document.getElementById('adjSummary');
   if (!el) return;
   const active = [];
-  if (settings.teamSize) active.push(settings.teamSize + '-team');
-  if (settings.tepLevel) active.push(settings.tepLevel + ' TEp');
-  if (settings.sixPtPass) active.push('6pt Pass TD');
-  if (settings.pointPerCarry) active.push('Pt Per Carry');
+  if (settings.teamSize)          active.push(settings.teamSize + '-team');
+  if (settings.tepLevel)          active.push(settings.tepLevel + ' TEp');
+  if (settings.sixPtPass)         active.push('6pt Pass TD');
+  if (settings.pointPerCarry)     active.push('Pt Per Carry');
   if (settings.pointPerFirstDown) active.push('Pt Per 1st Down');
-  if (settings.tieredPPR) active.push('Tiered PPR');
-  if (settings.start2TEs) active.push('Start 2 TEs');
+  if (settings.tieredPPR)         active.push('Tiered PPR');
+  if (settings.start2TEs)         active.push('Start 2 TEs');
 
   if (!active.length) { el.style.display = 'none'; return; }
   const m = getMultipliers();
@@ -285,12 +273,17 @@ function doSearch() {
     .filter(p => p.name.toLowerCase().includes(q))
     .sort((a, b) => getValue(b) - getValue(a))
     .slice(0, 20);
+
+  // FIX: use single quotes around name in onclick to prevent HTML attribute breaking
   rlist.innerHTML = results.length
-    ? results.map(p => {     const safeName = p.name.replace(/'/g, "\'");     return `<div class="ritem" onclick="selectPlayer('${safeName}')">
+    ? results.map(p => {
+        const safeName = p.name.replace(/'/g, "\\'");
+        return `<div class="ritem" onclick="selectPlayer('${safeName}')">
         <span class="ripos ${posColor(p.pos)}">${p.pos}</span>
         <span class="riname">${p.name}</span>
         <span class="rival">${getValue(p)}</span>
-      </div>`).join('')
+      </div>`;
+      }).join('')
     : '<div class="nores">No players found</div>';
   rlist.style.display = 'block';
 }
