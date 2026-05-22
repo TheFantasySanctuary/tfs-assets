@@ -286,7 +286,7 @@ function doSearch() {
     .sort((a, b) => getValue(b) - getValue(a))
     .slice(0, 20);
   rlist.innerHTML = results.length
-    ? results.map(p => `<div class="ritem" onclick="selectPlayer(${JSON.stringify(p.name)})">
+    ? results.map(p => {     const safeName = p.name.replace(/'/g, "\'");     return `<div class="ritem" onclick="selectPlayer('${safeName}')">
         <span class="ripos ${posColor(p.pos)}">${p.pos}</span>
         <span class="riname">${p.name}</span>
         <span class="rival">${getValue(p)}</span>
