@@ -564,6 +564,15 @@ window.setTE = function () {};
     (SL.tradedPicks || []).forEach(function(t){
       SL.pickOwnerMap[t.season + '|' + t.round + '|' + t.roster_id] = t.owner_id;
     });
+    var sheetPickCount;
+    try { sheetPickCount = ALL_PLAYERS.filter(function(p){ return (p.pos || '').toUpperCase() === 'PICK'; }).length; }
+    catch(e){ sheetPickCount = 'ALL_PLAYERS unavailable'; }
+    console.log('[TFS picks] sheet PICK entries:', sheetPickCount,
+      '| index years:', Object.keys(SL.pickIndex),
+      '| pickYears (>=start):', SL.pickYears,
+      '| season:', SL.season, '| status:', SL.status,
+      '| tradedPicks:', (SL.tradedPicks || []).length,
+      '| rosterIds:', SL.rosterIds);
   }
 
   function computeOwnedPicks(rosterId){
@@ -632,6 +641,8 @@ window.setTE = function () {};
       var b = mapRoster(SL.teams[bi], pmap, idx);
       var aPicks = computeOwnedPicks(SL.teams[ai].rid);
       var bPicks = computeOwnedPicks(SL.teams[bi].rid);
+      console.log('[TFS picks] owned A:', aPicks.length, '| owned B:', bPicks.length,
+        '| A rid:', SL.teams[ai].rid, '| B rid:', SL.teams[bi].rid);
       a.pickCount = aPicks.length; b.pickCount = bPicks.length;
       a.matched = a.matched.concat(aPicks);
       b.matched = b.matched.concat(bPicks);
