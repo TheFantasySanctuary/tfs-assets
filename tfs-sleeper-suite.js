@@ -433,13 +433,15 @@ window.setTE = function () {};
       var res = await Promise.all([
         fetchJson(SLEEPER + '/league/' + id + '/users'),
         fetchJson(SLEEPER + '/league/' + id + '/rosters'),
-        fetchJson(SLEEPER + '/league/' + id + '/traded_picks').catch(function(){ return []; })
+        fetchJson(SLEEPER + '/league/' + id + '/traded_picks').catch(function(){ return []; }),
+        fetchJson(SLEEPER + '/league/' + id + '/drafts').catch(function(){ return []; })
       ]);
       var users = res[0] || [], rosters = res[1] || [];
       SL.id = id; SL.users = {}; users.forEach(function(u){ SL.users[u.user_id] = u; });
       SL.rosters = rosters;
       SL.rosterIds = rosters.map(function(r){ return r.roster_id; });
       SL.tradedPicks = res[2] || [];
+      SL.drafts = res[3] || [];
       SL.season = lg.season;
       SL.status = lg.status;
       SL.teams = rosters.map(function(r){
@@ -563,7 +565,25 @@ window.setTE = function () {};
   function preparePicks(){
     SL.pickIndex = buildPickIndex();
     var seasonNum = parseInt(SL.season, 10) || new Date().getFullYear();
-    var startYear = (SL.status === 'in_season' || SL.status === 'complete') ? seasonNum + 1 : seasonNum;
+
+    // Authoritative: exclude any season whose rookie draft is already complete.
+    var maxDrafted = 0;
+    (SL.drafts || []).forEach(function(d){
+      if(d && d.status === 'complete'){
+        var ds = parseInt(d.season, 10);
+        if(ds && ds > maxDrafted) maxDrafted = ds;
+      }
+    });
+
+    var startYear;
+    if(maxDrafted){
+      startYear = maxDrafted + 1;
+    } else {
+      // Fallback when no draft data is available: infer from league status.
+      var drafted = (SL.status === 'in_season' || SL.status === 'complete' || SL.status === 'post_season');
+      startYear = drafted ? seasonNum + 1 : seasonNum;
+    }
+
     SL.pickYears = Object.keys(SL.pickIndex).filter(function(y){ return parseInt(y, 10) >= startYear; }).sort();
     SL.pickOwnerMap = {};
     (SL.tradedPicks || []).forEach(function(t){
