@@ -360,7 +360,10 @@ window.setTE = function () {};
   function populateSelects(opts){
     var a = document.getElementById('sleeperTeamA'), b = document.getElementById('sleeperTeamB');
     if(!a || !b) return;
-    var html = opts.map(function(o, i){ return '<option value="' + i + '">' + esc(o.label) + '</option>'; }).join('');
+    var html = opts.map(function(o, i){
+      var sub = (o.manager && o.manager !== o.label) ? ' (' + o.manager + ')' : '';
+      return '<option value="' + i + '">' + esc(o.label + sub) + '</option>';
+    }).join('');
     a.innerHTML = html; b.innerHTML = html;
     a.value = '0'; b.value = String(opts.length > 1 ? 1 : 0);
   }
@@ -441,8 +444,10 @@ window.setTE = function () {};
       SL.status = lg.status;
       SL.teams = rosters.map(function(r){
         var u = SL.users[r.owner_id];
-        var label = (u && u.metadata && u.metadata.team_name) || (u && u.display_name) || ('Roster ' + r.roster_id);
-        return { rid: r.roster_id, label: label, players: r.players || [] };
+        var manager = (u && (u.display_name || u.username)) || '';
+        var teamName = (u && u.metadata && u.metadata.team_name) || '';
+        var label = teamName || manager || ('Roster ' + r.roster_id);
+        return { rid: r.roster_id, label: label, manager: manager, players: r.players || [] };
       });
       populateSelects(SL.teams);
       var applied = applyLeagueSettings(lg);
@@ -520,7 +525,7 @@ window.setTE = function () {};
       if(ref) matched.push(ref); else unmatched.push(m.n);
     });
     matched.sort(function(x, y){ return tfsGetVal(y) - tfsGetVal(x); });
-    return { label: team.label, matched: matched, unmatched: unmatched };
+    return { label: team.label, manager: team.manager, matched: matched, unmatched: unmatched };
   }
 
   // ── DRAFT PICKS ──
@@ -564,15 +569,6 @@ window.setTE = function () {};
     (SL.tradedPicks || []).forEach(function(t){
       SL.pickOwnerMap[t.season + '|' + t.round + '|' + t.roster_id] = t.owner_id;
     });
-    var sheetPickCount;
-    try { sheetPickCount = ALL_PLAYERS.filter(function(p){ return (p.pos || '').toUpperCase() === 'PICK'; }).length; }
-    catch(e){ sheetPickCount = 'ALL_PLAYERS unavailable'; }
-    console.log('[TFS picks] sheet PICK entries:', sheetPickCount,
-      '| index years:', Object.keys(SL.pickIndex),
-      '| pickYears (>=start):', SL.pickYears,
-      '| season:', SL.season, '| status:', SL.status,
-      '| tradedPicks:', (SL.tradedPicks || []).length,
-      '| rosterIds:', SL.rosterIds);
   }
 
   function computeOwnedPicks(rosterId){
@@ -613,8 +609,11 @@ window.setTE = function () {};
     if(data.pickCount){
       note += '<div class="sl-note">' + data.pickCount + ' draft pick(s) loaded, valued at mid-tier (draft slot unknown pre-season).</div>';
     }
+    var mgr = (data.manager && data.manager !== data.label)
+      ? '<span style="display:block;font-weight:600;font-size:.68rem;color:var(--muted);opacity:.85;margin-top:2px;">@' + esc(data.manager) + '</span>'
+      : '';
     return '<div class="sl-team side-' + side.toLowerCase() + '">'
-      + '<div class="sl-team-head"><span>' + esc(data.label) + '</span><span>Team ' + side + '</span></div>'
+      + '<div class="sl-team-head"><span>' + esc(data.label) + mgr + '</span><span>Team ' + side + '</span></div>'
       + '<div class="sl-team-body">' + chips + note + '</div>'
       + '</div>';
   }
@@ -641,8 +640,6 @@ window.setTE = function () {};
       var b = mapRoster(SL.teams[bi], pmap, idx);
       var aPicks = computeOwnedPicks(SL.teams[ai].rid);
       var bPicks = computeOwnedPicks(SL.teams[bi].rid);
-      console.log('[TFS picks] owned A:', aPicks.length, '| owned B:', bPicks.length,
-        '| A rid:', SL.teams[ai].rid, '| B rid:', SL.teams[bi].rid);
       a.pickCount = aPicks.length; b.pickCount = bPicks.length;
       a.matched = a.matched.concat(aPicks);
       b.matched = b.matched.concat(bPicks);
