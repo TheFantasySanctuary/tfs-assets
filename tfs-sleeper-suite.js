@@ -525,7 +525,8 @@ window.setTE = function () {};
 
   // ── DRAFT PICKS ──
   function parsePick(name){
-    var y = (name.match(/\b(20\d{2})\b/) || [])[1] || null;
+    var ym = name.match(/\b(20\d{2})\b/) || name.match(/\b(\d{2})\b/);
+    var y = ym ? (ym[1].length === 2 ? '20' + ym[1] : ym[1]) : null;
     var m = name.match(/(\d)\s*(?:st|nd|rd|th)\b/i)
          || name.match(/round\s*(\d)/i)
          || name.match(/\br(\d)\b/i)
