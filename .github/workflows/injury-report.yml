@@ -2,7 +2,9 @@ name: Injury report data
 
 on:
   schedule:
-    # every 3 hours, September to February
+    # main run: 07:30 UTC (7:30am UK in winter, 8:30am in BST), just after nflverse's 07:00 UTC injury update
+    - cron: "30 7 * 9-12,1,2 *"
+    # back-up runs every 3 hours in case nflverse updates late
     - cron: "17 */3 * 9-12,1,2 *"
   workflow_dispatch:
 
